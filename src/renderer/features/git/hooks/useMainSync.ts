@@ -7,7 +7,7 @@
  * harmless post-#165 (new sessions branch off `origin/<default>`; diffs compare against `origin/<base>`),
  * so there's nothing to display — only an action to run. Concurrent calls for the same repo coalesce onto
  * one op (auto racing manual). It never reports failures itself: each caller decides how loudly to
- * surface one (the manual item shows a modal; the automatic path only logs).
+ * surface one (the manual item shows a modal; the automatic path shows the non-blocking top banner).
  */
 import { useCallback, useRef } from 'react'
 import type { ManagedRepo } from '../../../../preload/apis/types'

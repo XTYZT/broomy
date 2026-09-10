@@ -109,8 +109,8 @@ Every sync is **fast-forward-only** (`git:pullOriginMain` uses `merge --ff-only`
 only), so it can never rewrite history or leave a merge commit. Concurrent syncs of one repo coalesce in
 the renderer; anything that still races collides on git's own index lock and fails without touching the
 clone. A sync that can't fast-forward (a diverged, dirty, or wrong-branch clone) fails with an error:
-the manual "Sync main" item shows it in the error modal, while the automatic path only logs it, so a
-merge never pops a modal the user didn't ask for.
+the manual "Sync main" item shows it in the error modal, while the automatic path shows it in the
+dismissible top banner (`TopBanners` in `App.tsx`), so a merge never pops a modal the user didn't ask for.
 
 ## Git Status: Fetch, Parse, Display
 

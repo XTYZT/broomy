@@ -27,9 +27,11 @@ function setStore(sessions: Session[], isLoading = false) {
 
 type SyncMainMock = ReturnType<typeof vi.fn<(repoId: string) => Promise<{ success: boolean; error?: string }>>>
 let syncMain: SyncMainMock
+let onError: ReturnType<typeof vi.fn<(message: string) => void>>
 
 beforeEach(() => {
   syncMain = vi.fn<(repoId: string) => Promise<{ success: boolean; error?: string }>>().mockResolvedValue({ success: true })
+  onError = vi.fn<(message: string) => void>()
   useSessionStore.setState({ sessions: [], isLoading: false })
 })
 afterEach(() => cleanup())
@@ -37,20 +39,20 @@ afterEach(() => cleanup())
 describe('useMainAutoSync', () => {
   it('does not fire for a persisted MERGED session on an already-loaded mount', () => {
     setStore([sess('s1', 'MERGED', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
     expect(syncMain).not.toHaveBeenCalled()
   })
 
   it('baselines on the isLoading falling edge, so a persisted MERGED still never fires', () => {
     setStore([sess('s1', 'MERGED', 'r1')], true) // still loading → no baseline yet
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
     act(() => { useSessionStore.setState({ isLoading: false }) }) // edge → baseline the MERGED
     expect(syncMain).not.toHaveBeenCalled()
   })
 
   it('fires exactly once on a real OPEN → MERGED transition', () => {
     setStore([sess('s1', 'OPEN', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     act(() => { setStore([sess('s1', 'MERGED', 'r1')]) })
 
@@ -58,23 +60,31 @@ describe('useMainAutoSync', () => {
     expect(syncMain).toHaveBeenCalledWith('r1')
   })
 
-  it('logs a failed automatic fast-forward instead of opening the error modal', async () => {
+  it('sends a failed automatic fast-forward to the banner, not the error modal', async () => {
     syncMain.mockResolvedValue({ success: false, error: 'dirty worktree' })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     useErrorStore.setState({ detailError: null })
     setStore([sess('s1', 'OPEN', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     await act(async () => { setStore([sess('s1', 'MERGED', 'r1')]) })
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('r1'), 'dirty worktree')
+    expect(onError).toHaveBeenCalledWith("Couldn't update main/ for r1: dirty worktree")
     expect(useErrorStore.getState().detailError).toBeNull()
-    warn.mockRestore()
+  })
+
+  it('does not report a successful automatic fast-forward', async () => {
+    setStore([sess('s1', 'OPEN', 'r1')], false)
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
+
+    await act(async () => { setStore([sess('s1', 'MERGED', 'r1')]) })
+
+    expect(syncMain).toHaveBeenCalledWith('r1')
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('fires again on a second MERGED after the PR state cycles away and back', () => {
     setStore([sess('s1', 'OPEN', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     act(() => { setStore([sess('s1', 'MERGED', 'r1')]) })
     act(() => { setStore([sess('s1', null, 'r1')]) })
@@ -85,7 +95,7 @@ describe('useMainAutoSync', () => {
 
   it('baselines (never fires for) a session first observed already MERGED', () => {
     setStore([], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     act(() => { setStore([sess('new', 'MERGED', 'r1')]) }) // absent → MERGED is not a transition
     expect(syncMain).not.toHaveBeenCalled()
@@ -94,7 +104,7 @@ describe('useMainAutoSync', () => {
   it('pends a transition whose repo has not loaded, then fires when repos arrive', () => {
     setStore([sess('s1', 'OPEN', 'r1')], false)
     const { rerender } = renderHook(
-      ({ repos }: { repos: ManagedRepo[] }) => useMainAutoSync(repos, syncMain),
+      ({ repos }: { repos: ManagedRepo[] }) => useMainAutoSync(repos, syncMain, onError),
       { initialProps: { repos: [] as ManagedRepo[] } },
     )
 
@@ -107,7 +117,7 @@ describe('useMainAutoSync', () => {
 
   it('resolves a legacy (no-repoId) session to its repo by worktree path', () => {
     setStore([legacy('s1', 'OPEN', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     act(() => { setStore([legacy('s1', 'MERGED', 'r1')]) })
     expect(syncMain).toHaveBeenCalledWith('r1')
@@ -115,7 +125,7 @@ describe('useMainAutoSync', () => {
 
   it('drops bookkeeping for removed sessions without firing for them', () => {
     setStore([sess('s1', 'OPEN', 'r1'), sess('s2', 'OPEN', 'r1')], false)
-    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain, onError))
 
     // s2 disappears in the same snapshot where s1 merges: one fire, clean removal.
     act(() => { setStore([sess('s1', 'MERGED', 'r1')]) })
@@ -126,7 +136,7 @@ describe('useMainAutoSync', () => {
   it('does not fire when a still-pending session is removed before repos load', () => {
     setStore([sess('s1', 'OPEN', 'r1')], false)
     const { rerender } = renderHook(
-      ({ repos }: { repos: ManagedRepo[] }) => useMainAutoSync(repos, syncMain),
+      ({ repos }: { repos: ManagedRepo[] }) => useMainAutoSync(repos, syncMain, onError),
       { initialProps: { repos: [] as ManagedRepo[] } },
     )
     act(() => { setStore([sess('s1', 'MERGED', 'r1')]) }) // pended (repos empty)

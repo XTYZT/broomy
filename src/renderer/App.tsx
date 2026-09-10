@@ -305,7 +305,7 @@ function AppContent() {
   // Panels map hook
   // #170: keep each repo's main/ clone current — auto-fast-forward on merge + a manual right-click "Sync main".
   const { syncMain } = useMainSync(repos)
-  useMainAutoSync(repos, syncMain)
+  useMainAutoSync(repos, syncMain, setAppError)
 
   const panelsMap = usePanelsMap({
     sessions, activeSessionId, activeSession,

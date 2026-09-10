@@ -13,11 +13,18 @@ import { useSessionStore, type Session, type PrState } from '../../../store/sess
 import type { ManagedRepo } from '../../../../preload/apis/types'
 import { resolveManagedRepoId } from '../../../panels/sidebar/repoGroups'
 
-export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string) => Promise<{ success: boolean; error?: string }>): void {
+export function useMainAutoSync(
+  repos: ManagedRepo[],
+  syncMain: (repoId: string) => Promise<{ success: boolean; error?: string }>,
+  /** Shows a failed automatic sync in the app's dismissible top banner (non-blocking). */
+  onError: (message: string) => void,
+): void {
   const reposRef = useRef(repos)
   reposRef.current = repos
   const syncMainRef = useRef(syncMain)
   syncMainRef.current = syncMain
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   const prevPrState = useRef(new Map<string, PrState>())
   const baselined = useRef(false)
@@ -27,10 +34,12 @@ export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string)
     const repoId = resolveManagedRepoId(s, reposRef.current)
     if (repoId) {
       pending.current.delete(s.id)
-      // Background action the user didn't ask for, so a failure (dirty/diverged main/, offline) is logged
-      // rather than shown as a modal; the manual "Sync main" item is where failures surface loudly.
+      // Background action the user didn't ask for, so a failure (dirty/diverged main/, offline) goes to the
+      // dismissible top banner rather than a blocking modal.
       void syncMainRef.current(repoId).then((result) => {
-        if (!result.success) console.warn(`[main-sync] auto fast-forward of ${repoId} failed:`, result.error)
+        if (result.success) return
+        const name = reposRef.current.find((r) => r.id === repoId)?.name ?? repoId
+        onErrorRef.current(`Couldn't update main/ for ${name}: ${result.error ?? 'fast-forward failed'}`)
       })
     } else {
       pending.current.add(s.id) // repos may not have loaded — retry when they do

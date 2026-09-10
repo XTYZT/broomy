@@ -1,8 +1,8 @@
 /**
  * Surface a failed manual "Sync main" (#170) from the session-card right-click. The user asked for the
  * sync, so a dropped failure would read as a dead menu item; the common cause is a diverged / dirty /
- * wrong-branch `main/` clone. The automatic sync-on-merge path deliberately does NOT use this — a modal
- * the user never asked for, on every merge, is worse than a stale `main/`.
+ * wrong-branch `main/` clone. The automatic sync-on-merge path deliberately does NOT use this — it shows
+ * the app's dismissible top banner instead, since a modal the user never asked for would interrupt them.
  */
 import { useErrorStore } from '../../store/errors'
 
