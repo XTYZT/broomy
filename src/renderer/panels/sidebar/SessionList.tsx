@@ -22,7 +22,7 @@ import { useSessionGrouping } from './useSessionGrouping'
 import { useSessionListActions } from './useSessionListActions'
 import { sortArchived } from './archivedOrder'
 import { useSidebarDrag } from './useSidebarDrag'
-import { groupKeyForSession, resolveRepoId } from './repoGroups'
+import { groupKeyForSession, resolveManagedRepoId } from './repoGroups'
 import type { MainSyncProps } from '../../features/git/hooks/useMainSync'
 
 interface SessionListProps extends MainSyncProps {
@@ -170,9 +170,7 @@ export default function SessionList({
       <div className="flex-1 overflow-y-auto p-2">
         {/* Search flattens to a filtered list with a neutral repo tag; no grouping. */}
         {searching && orderedSessions.map((session) => {
-          // A deleted repo keeps its id on the session, so only offer "Sync main" for a live repo.
-          const rid = resolveRepoId(session, repos)
-          const syncRepoId = rid && repos.some((r) => r.id === rid) ? rid : undefined
+          const syncRepoId = resolveManagedRepoId(session, repos)
           return (
             <PanelErrorBoundary key={session.id} name={`Session ${session.branch}`}>
               <SessionCard

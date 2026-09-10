@@ -2,8 +2,6 @@
  * IPC handlers for git sync operations: pull, push, fetch, and stash.
  */
 import { IpcMain } from 'electron'
-import { realpathSync } from 'fs'
-import { resolve } from 'path'
 import simpleGit from 'simple-git'
 import { HandlerContext, expandHomePath } from './types'
 import { getScenarioData } from './scenarios'
@@ -17,66 +15,36 @@ function withNonInteractive(git: ReturnType<typeof simpleGit>) {
 }
 
 /**
- * Serialize fetch/merge on one `main/` clone (#170): the auto-sync-on-merge and the manual "Sync main"
- * paths must never run two fast-forwards on the same clone at once. Keyed by the expanded repo path; a
- * chained promise so callers queue. Tail-safe: the map entry is removed only if it's still THIS op's tail,
- * so a settling caller can't clear a still-queued successor's slot (a 2-caller test wouldn't catch that).
- */
-const mainSyncLocks = new Map<string, Promise<unknown>>()
-
-/**
- * Canonicalize the clone path so equivalent spellings — a symlink, a trailing separator, `..`
- * segments, or a case-variant on a case-insensitive filesystem — resolve to ONE lock key. Otherwise
- * two windows (same main process) referencing the same clone by different spellings would take
- * different locks and pull concurrently, defeating the per-clone serialization. `realpath` needs the
- * path to exist; if it doesn't yet, fall back to `resolve` (still normalizes `..`/trailing sep).
- */
-function cloneLockKey(expandedPath: string): string {
-  try { return realpathSync.native(expandedPath) } catch { return resolve(expandedPath) }
-}
-
-function withMainSyncLock<T>(key: string, op: () => Promise<T>): Promise<T> {
-  const prev = mainSyncLocks.get(key) ?? Promise.resolve()
-  const run = prev.then(op, op) // run after the predecessor settles (success or failure)
-  mainSyncLocks.set(key, run)
-  const cleanup = () => { if (mainSyncLocks.get(key) === run) mainSyncLocks.delete(key) }
-  run.then(cleanup, cleanup)
-  return run
-}
-
-/**
  * Fast-forward the primary `main/` clone to `origin/<default>` (#170). `--ff-only` so it can never
  * create a merge commit or leave conflicts — a diverged clone fails loudly. Guarded so it never
- * advances the WRONG branch: the clone must be checked out on the default branch. Serialized per clone.
+ * advances the WRONG branch: the clone must be checked out on the default branch. Not locked: two
+ * racing fast-forwards collide on git's own index.lock, and the loser fails without touching the clone.
  */
 async function handlePullOriginMain(ctx: HandlerContext, repoPath: string) {
   if (ctx.isE2ETest && !ctx.e2eRealRepos) {
     return { success: true }
   }
 
-  const expanded = expandHomePath(repoPath)
-  return withMainSyncLock(cloneLockKey(expanded), async () => {
-    try {
-      const git = withNonInteractive(simpleGit(expanded))
-      const defaultBranch = await getDefaultBranch(git, true)
+  try {
+    const git = withNonInteractive(simpleGit(expandHomePath(repoPath)))
+    const defaultBranch = await getDefaultBranch(git, true)
 
-      // Never fast-forward a non-default branch: the primary clone must be ON the default branch.
-      const head = (await git.raw(['symbolic-ref', '--short', 'HEAD']).catch(() => '')).trim()
-      if (head !== defaultBranch) {
-        return { success: false, error: `The main clone is on "${head || 'a detached HEAD'}", not "${defaultBranch}", so it can't be fast-forwarded automatically.` }
-      }
-
-      await git.fetch('origin', defaultBranch)
-      try {
-        await git.merge(['--ff-only', `origin/${defaultBranch}`])
-        return { success: true }
-      } catch (mergeError) {
-        return { success: false, error: String(mergeError) }
-      }
-    } catch (error) {
-      return { success: false, error: String(error) }
+    // Never fast-forward a non-default branch: the primary clone must be ON the default branch.
+    const head = (await git.raw(['symbolic-ref', '--short', 'HEAD']).catch(() => '')).trim()
+    if (head !== defaultBranch) {
+      return { success: false, error: `The main clone is on "${head || 'a detached HEAD'}", not "${defaultBranch}", so it can't be fast-forwarded automatically.` }
     }
-  })
+
+    await git.fetch('origin', defaultBranch)
+    try {
+      await git.merge(['--ff-only', `origin/${defaultBranch}`])
+      return { success: true }
+    } catch (mergeError) {
+      return { success: false, error: String(mergeError) }
+    }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
 }
 
 /**

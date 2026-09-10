@@ -75,7 +75,6 @@ describe('gitSync handlers', () => {
 
   // raw() serves getDefaultBranch (symbolic-ref refs/remotes/origin/HEAD) AND the on-default guard
   // (symbolic-ref --short HEAD) AND rev-list; route by argument so call ordering isn't brittle.
-  const flush = () => new Promise((r) => setTimeout(r, 0))
   function rawRouter(opts: { defaultBranch?: string; headBranch?: string; behind?: string } = {}) {
     const def = opts.defaultBranch ?? 'main'
     mockGitInstance.raw.mockImplementation((args: string[]) => {
@@ -157,49 +156,6 @@ describe('gitSync handlers', () => {
       const result = await handlers['git:pullOriginMain'](null, '/repo')
       expect(result.success).toBe(false)
       expect(result.error).toContain('network error')
-    })
-
-    it('serializes syncs on one clone tail-safely — a later caller cannot overtake a queued one', async () => {
-      rawRouter()
-      mockGitInstance.fetch.mockResolvedValue(undefined)
-      const releases: (() => void)[] = []
-      mockGitInstance.merge.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)))
-      const handlers = setupHandlers()
-      const A = handlers['git:pullOriginMain'](null, '/repo')
-      const B = handlers['git:pullOriginMain'](null, '/repo') // queued behind A
-      await flush()
-      expect(releases).toHaveLength(1) // only A is running
-      releases[0]() // A completes
-      await A
-      const C = handlers['git:pullOriginMain'](null, '/repo') // arrives AFTER A settled — must NOT overtake B
-      await flush()
-      expect(releases).toHaveLength(2) // only B is running (C queued behind it — tail-safe cleanup held B's slot)
-      releases[1]() // B completes
-      await B
-      await flush()
-      expect(releases).toHaveLength(3) // C runs only now
-      releases[2]()
-      expect(await C).toEqual({ success: true })
-    })
-
-    it('serializes equivalent path spellings of the same clone onto one lock', async () => {
-      rawRouter()
-      mockGitInstance.fetch.mockResolvedValue(undefined)
-      const releases: (() => void)[] = []
-      mockGitInstance.merge.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)))
-      const handlers = setupHandlers()
-      // Same clone, different spellings (trailing separator). The lock key is canonicalized, so B must
-      // queue behind A rather than pull concurrently.
-      const A = handlers['git:pullOriginMain'](null, '/repo')
-      const B = handlers['git:pullOriginMain'](null, '/repo/')
-      await flush()
-      expect(releases).toHaveLength(1) // B did not overtake A
-      releases[0]()
-      await A
-      await flush()
-      expect(releases).toHaveLength(2) // B runs only after A settled
-      releases[1]()
-      expect(await B).toEqual({ success: true })
     })
   })
 

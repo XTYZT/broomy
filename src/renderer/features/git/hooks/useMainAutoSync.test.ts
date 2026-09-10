@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup } from '@testing-library/react'
 import { useMainAutoSync } from './useMainAutoSync'
 import { useSessionStore } from '../../../store/sessions'
+import { useErrorStore } from '../../../store/errors'
 import type { ManagedRepo } from '../../../../preload/apis/types'
 import type { Session, PrState } from '../../../store/sessions'
 
@@ -55,6 +56,20 @@ describe('useMainAutoSync', () => {
 
     expect(syncMain).toHaveBeenCalledTimes(1)
     expect(syncMain).toHaveBeenCalledWith('r1')
+  })
+
+  it('logs a failed automatic fast-forward instead of opening the error modal', async () => {
+    syncMain.mockResolvedValue({ success: false, error: 'dirty worktree' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useErrorStore.setState({ detailError: null })
+    setStore([sess('s1', 'OPEN', 'r1')], false)
+    renderHook(() => useMainAutoSync([repo('r1')], syncMain))
+
+    await act(async () => { setStore([sess('s1', 'MERGED', 'r1')]) })
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('r1'), 'dirty worktree')
+    expect(useErrorStore.getState().detailError).toBeNull()
+    warn.mockRestore()
   })
 
   it('fires again on a second MERGED after the PR state cycles away and back', () => {

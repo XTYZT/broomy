@@ -574,6 +574,19 @@ describe('SessionList', () => {
       await waitFor(() => expect(onSyncMain).toHaveBeenCalledWith('r1'))
     })
 
+    it('shows a failed manual "Sync main" in the error modal', async () => {
+      const onSyncMain = vi.fn().mockResolvedValue({ success: false, error: 'Not possible to fast-forward' })
+      vi.mocked(window.menu.popup).mockResolvedValueOnce('sync-main')
+      setSessions([makeSession({ id: 's1', branch: 'b1', repoId: 'r1' })])
+      const repos = [{ id: 'r1', name: 'demo', remoteUrl: '', rootDir: '/repos/demo', defaultBranch: 'main' }]
+      const { container } = render(<SessionList {...makeProps({ repos, onSyncMain })} />)
+
+      fireEvent.contextMenu(container.querySelector('[data-session-card]')!)
+
+      await waitFor(() => expect(useErrorStore.getState().detailError?.detail).toBe('Not possible to fast-forward'))
+      expect(useErrorStore.getState().detailError?.displayMessage).toBe('Could not sync the main clone')
+    })
+
     it('offers "Sync main" for a legacy session resolved to its repo by worktree path', async () => {
       const onSyncMain = vi.fn().mockResolvedValue({ success: true })
       vi.mocked(window.menu.popup).mockResolvedValueOnce('sync-main')

@@ -1,9 +1,8 @@
 /**
- * Surface a failed "Sync main" (#170). Called once inside `useMainSync`'s `syncMain`, so a single
- * (coalesced) fast-forward reports one modal no matter how many callers awaited it — whether the sync
- * was triggered manually (the session-card right-click) or automatically (`useMainAutoSync` on a PR
- * merge). A silent failure would leave `main/` stale with no trace; the common cause is a diverged /
- * dirty / wrong-branch `main/` clone.
+ * Surface a failed manual "Sync main" (#170) from the session-card right-click. The user asked for the
+ * sync, so a dropped failure would read as a dead menu item; the common cause is a diverged / dirty /
+ * wrong-branch `main/` clone. The automatic sync-on-merge path deliberately does NOT use this — a modal
+ * the user never asked for, on every merge, is worse than a stale `main/`.
  */
 import { useErrorStore } from '../../store/errors'
 

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useSessionStore, type Session, type PrState } from '../../../store/sessions'
 import type { ManagedRepo } from '../../../../preload/apis/types'
-import { resolveRepoId } from '../../../panels/sidebar/repoGroups'
+import { resolveManagedRepoId } from '../../../panels/sidebar/repoGroups'
 
 export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string) => Promise<{ success: boolean; error?: string }>): void {
   const reposRef = useRef(repos)
@@ -24,13 +24,14 @@ export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string)
   const pending = useRef(new Set<string>()) // sessionIds whose merge couldn't yet resolve a managed repo
 
   const fireOrPend = useCallback((s: Session): void => {
-    const currentRepos = reposRef.current
-    const repoId = resolveRepoId(s, currentRepos)
-    if (repoId && currentRepos.some((r) => r.id === repoId)) {
+    const repoId = resolveManagedRepoId(s, reposRef.current)
+    if (repoId) {
       pending.current.delete(s.id)
-      // Fire-and-forget: a failed fast-forward (dirty/diverged main/) is surfaced by `syncMain` itself
-      // (one modal per op), so this path no longer swallows the error silently.
-      void syncMainRef.current(repoId)
+      // Background action the user didn't ask for, so a failure (dirty/diverged main/, offline) is logged
+      // rather than shown as a modal; the manual "Sync main" item is where failures surface loudly.
+      void syncMainRef.current(repoId).then((result) => {
+        if (!result.success) console.warn(`[main-sync] auto fast-forward of ${repoId} failed:`, result.error)
+      })
     } else {
       pending.current.add(s.id) // repos may not have loaded — retry when they do
     }
@@ -45,7 +46,7 @@ export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string)
     }
   }, [fireOrPend])
 
-  const process = useCallback((sessions: Session[], isLoading: boolean): void => {
+  const detectMergeTransitions = useCallback((sessions: Session[], isLoading: boolean): void => {
     if (!baselined.current) {
       if (isLoading) return
       for (const s of sessions) prevPrState.current.set(s.id, s.lastKnownPrState ?? null)
@@ -69,9 +70,9 @@ export function useMainAutoSync(repos: ManagedRepo[], syncMain: (repoId: string)
 
   useEffect(() => {
     const st = useSessionStore.getState()
-    process(st.sessions, st.isLoading)
-    return useSessionStore.subscribe((state) => process(state.sessions, state.isLoading))
-  }, [process])
+    detectMergeTransitions(st.sessions, st.isLoading)
+    return useSessionStore.subscribe((state) => detectMergeTransitions(state.sessions, state.isLoading))
+  }, [detectMergeTransitions])
 
   // Repos live in a separate store; when they load, retry any transitions we couldn't resolve.
   useEffect(() => {

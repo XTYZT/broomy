@@ -84,7 +84,7 @@ ipcMain.handle('git:status', async (_event, repoPath: string) => {
 | `git:fetchPrHead` | Fetch PR head ref |
 | `git:isMergedInto` | Check if current branch is merged into a ref |
 | `git:hasBranchCommits` | Check if branch has commits ahead of a ref |
-| `git:pullOriginMain` | **Fast-forward-only** (`merge --ff-only`) update of the `main/` clone to `origin/<default>`; verifies the clone is on the default branch first and serializes per clone. Returns `{ success, error? }` (a diverged/detached/wrong-branch clone fails with a clear `error`, never a merge commit). |
+| `git:pullOriginMain` | **Fast-forward-only** (`merge --ff-only`) update of the `main/` clone to `origin/<default>`; verifies the clone is on the default branch first. Returns `{ success, error? }` (a diverged/detached/wrong-branch clone fails with a clear `error`, never a merge commit). |
 | `git:isBehindMain` | Check how many commits behind default branch |
 | `git:branchChanges` | Files changed on branch vs base |
 | `git:branchCommits` | Commits on branch since diverging from base |
@@ -106,9 +106,11 @@ rather than surfacing a status:
   fast-forward is a no-op when already current).
 
 Every sync is **fast-forward-only** (`git:pullOriginMain` uses `merge --ff-only`, on the default branch
-only, serialized per clone), so it can never rewrite history or leave a merge commit. A sync that can't
-fast-forward (a diverged, dirty, or wrong-branch clone) fails loudly with an error surfaced to the user —
-whether it was triggered manually or automatically — instead of silently leaving `main/` stale.
+only), so it can never rewrite history or leave a merge commit. Concurrent syncs of one repo coalesce in
+the renderer; anything that still races collides on git's own index lock and fails without touching the
+clone. A sync that can't fast-forward (a diverged, dirty, or wrong-branch clone) fails with an error:
+the manual "Sync main" item shows it in the error modal, while the automatic path only logs it, so a
+merge never pops a modal the user didn't ask for.
 
 ## Git Status: Fetch, Parse, Display
 

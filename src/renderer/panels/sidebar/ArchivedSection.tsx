@@ -9,7 +9,7 @@ import { StatusIndicator } from './StatusIndicator'
 import { rollupToIndicator } from './RepoGroupHeader'
 import type { Session } from '../../store/sessions'
 import type { ManagedRepo } from '../../../preload/index'
-import { resolveRepoId, type Rollup } from './repoGroups'
+import { resolveManagedRepoId, type Rollup } from './repoGroups'
 import type { MainSyncProps } from '../../features/git/hooks/useMainSync'
 
 export function ArchivedSection({
@@ -71,9 +71,7 @@ export function ArchivedSection({
       {open && (
         <div className="mt-1">
           {sessions.map((session) => {
-            // A deleted repo keeps its id on the session, so only offer "Sync main" for a live repo.
-            const rid = resolveRepoId(session, repos)
-            const syncRepoId = rid && repos.some((r) => r.id === rid) ? rid : undefined
+            const syncRepoId = resolveManagedRepoId(session, repos)
             return (
               <PanelErrorBoundary key={session.id} name={`Session ${session.branch}`}>
                 <SessionCard

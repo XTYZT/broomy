@@ -18,6 +18,7 @@ import { dropEdgeClasses } from './useSidebarDrag'
 import { fileManagerName } from '../../shared/utils/platform'
 import { useErrorStore } from '../../store/errors'
 import type { SyncMainResult } from '../../features/git/hooks/useMainSync'
+import { reportMainSyncFailure } from '../../features/git/mainSyncError'
 import type { MenuItemDef } from '../../../preload/apis/types'
 
 /**
@@ -40,9 +41,9 @@ function reportOpenFailure(directory: string, error?: string): void {
 /**
  * Build + run the card's right-click menu: always "Open in <file manager>", plus (for a currently-managed
  * repo, #170) a separator and a "Sync main" item. The item is always enabled — a fast-forward-only sync is
- * a harmless no-op when `main/` is already current — so there's no behind-count to track. A failure is
- * surfaced by `onSyncMain` (`syncMain`) itself. Extracted from the component so its branching doesn't
- * inflate the render function's length/complexity budget.
+ * a harmless no-op when `main/` is already current — so there's no behind-count to track. The user asked
+ * for the sync, so a failure is surfaced here as a modal. Extracted from the component so its branching
+ * doesn't inflate the render function's length/complexity budget.
  */
 async function runSessionContextMenu(params: {
   directory: string
@@ -57,7 +58,9 @@ async function runSessionContextMenu(params: {
   }
   const choice = await window.menu.popup(items)
   if (choice === 'sync-main') {
-    if (repoId) void onSyncMain(repoId) // syncMain surfaces any failure itself
+    if (!repoId) return
+    const result = await onSyncMain(repoId)
+    if (!result.success) reportMainSyncFailure(result.error)
     return
   }
   if (choice !== 'open-in-file-manager') return
