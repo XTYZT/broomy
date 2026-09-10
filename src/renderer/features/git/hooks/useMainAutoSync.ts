@@ -1,5 +1,5 @@
 /**
- * ① Auto fast-forward a repo's `main/` clone the moment Broomy observes one of its sessions' PR becoming
+ * Auto fast-forward a repo's `main/` clone the moment Broomy observes one of its sessions' PR becoming
  * MERGED (#170) — the in-Broomy-merge trigger. It OBSERVES the session store (never mutates it) and fires
  * `syncMain(repoId)` exactly once per real non-MERGED→MERGED transition.
  *
@@ -12,10 +12,11 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useSessionStore, type Session, type PrState } from '../../../store/sessions'
 import type { ManagedRepo } from '../../../../preload/apis/types'
 import { resolveManagedRepoId } from '../../../panels/sidebar/repoGroups'
+import type { SyncMainResult } from './useMainSync'
 
 export function useMainAutoSync(
   repos: ManagedRepo[],
-  syncMain: (repoId: string) => Promise<{ success: boolean; error?: string }>,
+  syncMain: (repoId: string) => Promise<SyncMainResult>,
   /** Shows a failed automatic sync in the app's dismissible top banner (non-blocking). */
   onError: (message: string) => void,
 ): void {

@@ -6,9 +6,10 @@ import { useSessionStore } from '../../../store/sessions'
 import { useErrorStore } from '../../../store/errors'
 import type { ManagedRepo } from '../../../../preload/apis/types'
 import type { Session, PrState } from '../../../store/sessions'
+import type { SyncMainResult } from './useMainSync'
 
 function repo(id: string): ManagedRepo {
-  return { id, name: id, remoteUrl: '', rootDir: `/root/${id}`, defaultBranch: 'main' } as ManagedRepo
+  return { id, name: id, remoteUrl: '', rootDir: `/root/${id}`, defaultBranch: 'main' }
 }
 function sess(id: string, prState: PrState, repoId?: string): Session {
   return {
@@ -25,12 +26,12 @@ function setStore(sessions: Session[], isLoading = false) {
   useSessionStore.setState({ sessions, isLoading })
 }
 
-type SyncMainMock = ReturnType<typeof vi.fn<(repoId: string) => Promise<{ success: boolean; error?: string }>>>
+type SyncMainMock = ReturnType<typeof vi.fn<(repoId: string) => Promise<SyncMainResult>>>
 let syncMain: SyncMainMock
 let onError: ReturnType<typeof vi.fn<(message: string) => void>>
 
 beforeEach(() => {
-  syncMain = vi.fn<(repoId: string) => Promise<{ success: boolean; error?: string }>>().mockResolvedValue({ success: true })
+  syncMain = vi.fn<(repoId: string) => Promise<SyncMainResult>>().mockResolvedValue({ success: true })
   onError = vi.fn<(message: string) => void>()
   useSessionStore.setState({ sessions: [], isLoading: false })
 })

@@ -19,6 +19,7 @@ import type { FileStatus, ViewMode } from '../panels/fileViewer/FileViewer'
 import type { GitFileStatus, GitStatusResult, ManagedRepo } from '../../preload/index'
 import type { ExplorerFilter, PrState } from '../store/sessions'
 import type { ReviewState } from '../features/git/reviewState'
+import type { SyncMainResult } from '../features/git/hooks/useMainSync'
 import type { NavigationTarget } from '../shared/utils/fileNavigation'
 
 /** Wrapper that subscribes each session terminal to its own visibility from the store. */
@@ -106,7 +107,7 @@ export interface PanelsMapConfig {
   closeCommandsEditor: (sessionId: string) => void
   repos: ManagedRepo[]
   /** #170: fast-forward a repo's `main/` clone (manual right-click "Sync main"). */
-  syncMain: (repoId: string) => Promise<{ success: boolean; error?: string }>
+  syncMain: (repoId: string) => Promise<SyncMainResult>
 }
 
 function useExplorerPanel(config: PanelsMapConfig) {
