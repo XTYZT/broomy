@@ -243,4 +243,60 @@ describe('NewSessionDialog', () => {
       expect(document.activeElement).toBe(dialog.querySelector('button'))
     })
   })
+
+  describe('repo filter (#188)', () => {
+    const names = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel']
+    const repos = names.map((name) => ({ id: `id-${name}`, name, remoteUrl: '', rootDir: `/repos/${name}`, defaultBranch: 'main' }))
+    const filterInput = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Filter repositories' })
+
+    beforeEach(() => {
+      useRepoStore.setState({ repos, ghAvailable: true })
+      vi.mocked(window.repos.getInitScript).mockResolvedValue('')
+    })
+
+    it('/, type, Enter, N opens New Branch for the filtered repo', () => {
+      render(<NewSessionDialog onComplete={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.keyDown(window, { key: '/' })
+      fireEvent.change(filterInput(), { target: { value: 'golf' } })
+      fireEvent.keyDown(filterInput(), { key: 'Enter' })
+      expect(document.activeElement).toBe(screen.getByRole('dialog'))
+
+      fireEvent.keyDown(window, { key: 'n' })
+      expect(screen.getByRole('heading', { name: 'New Branch' })).toBeTruthy()
+      expect(screen.getByText('golf')).toBeTruthy()
+    })
+
+    it('returning from a sub-view starts Home with the filter cleared', () => {
+      const { container } = render(<NewSessionDialog onComplete={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.keyDown(window, { key: '/' })
+      fireEvent.change(filterInput(), { target: { value: 'golf' } })
+      fireEvent.keyDown(filterInput(), { key: 'Enter' })
+      fireEvent.keyDown(window, { key: 'n' })
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(screen.getByText('New Session')).toBeTruthy()
+      expect(filterInput().value).toBe('')
+      expect(container.querySelectorAll('[data-repo-row]')).toHaveLength(names.length)
+    })
+
+    it('keeps the filter inside the Tab loop', () => {
+      render(<NewSessionDialog onComplete={vi.fn()} onCancel={vi.fn()} />)
+      const dialog = screen.getByRole('dialog')
+      const cancel = screen.getByRole('button', { name: 'Cancel' })
+
+      cancel.focus()
+      fireEvent.keyDown(cancel, { key: 'Tab' })
+      expect(document.activeElement).toBe(filterInput())
+      fireEvent.keyDown(filterInput(), { key: 'Tab', shiftKey: true })
+      expect(document.activeElement).toBe(cancel)
+
+      // After Enter the dialog itself has focus, and Tab re-enters at the filter
+      filterInput().focus()
+      fireEvent.change(filterInput(), { target: { value: 'o' } })
+      fireEvent.keyDown(filterInput(), { key: 'Enter' })
+      expect(document.activeElement).toBe(dialog)
+      fireEvent.keyDown(dialog, { key: 'Tab' })
+      expect(document.activeElement).toBe(filterInput())
+    })
+  })
 })

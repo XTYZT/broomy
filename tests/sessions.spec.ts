@@ -174,8 +174,8 @@ test.describe('New Session Dialog', () => {
 
   const dialog = () => page.locator('[role="dialog"]')
   const repoRows = () => dialog().locator('[data-repo-row]')
-  // Home's scrolling body (the dialog shell itself is the locator root, so it never matches here)
-  const homeBody = () => dialog().locator('.overflow-y-auto').filter({ has: page.locator('[data-repo-row]') })
+  // Home's scrolling body, found even when a filter leaves no repo rows
+  const homeBody = () => dialog().locator('[data-home-body]')
   const homeHeading = () => dialog().locator('h2:has-text("New Session")')
   const homeCancel = () => dialog().getByRole('button', { name: 'Cancel' })
 
@@ -386,11 +386,17 @@ test.describe('New Session Dialog', () => {
     await homeBody().evaluate(el => { el.scrollTop = el.scrollHeight })
     await expect(clone).not.toBeInViewport()
 
+    // With this many repos the header's filter box (#188) is the first control, then Clone
     await homeCancel().focus()
+    await page.keyboard.press('Tab')
+    await expect(filterInput()).toBeFocused()
+    await expect(filterInput()).toBeInViewport({ ratio: 1 })
     await page.keyboard.press('Tab')
     await expect(clone).toBeFocused()
     await expect(clone).toBeInViewport({ ratio: 1 })
 
+    await page.keyboard.press('Shift+Tab')
+    await expect(filterInput()).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(homeCancel()).toBeFocused()
     await expect(homeCancel()).toBeInViewport({ ratio: 1 })
@@ -422,6 +428,129 @@ test.describe('New Session Dialog', () => {
     await expectReachable(clone)
     await clone.click()
     await expect(dialog().locator('h2:has-text("Clone Repository")')).toBeVisible()
+  })
+
+  // ── #188: with many repos, a filter box in the header narrows the list ──
+
+  const filterInput = () => dialog().getByRole('textbox', { name: 'Filter repositories' })
+
+  async function expectSameBox(before: { x: number; y: number; width: number; height: number }) {
+    const after = (await dialog().boundingBox())!
+    for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(after[key] - before[key])).toBeLessThanOrEqual(1)
+  }
+
+  test('/ filters the repos; Enter returns to the shortcuts, which act on the match (#188)', async () => {
+    await injectRepos(30)
+    await openNewSessionDialog()
+    await expect(filterInput()).toBeVisible()
+    await expect(filterInput()).not.toBeFocused()
+
+    await page.keyboard.press('/')
+    await expect(filterInput()).toBeFocused()
+    await expect(filterInput()).toHaveValue('')
+
+    // Every letter types: n, e, r, o... must not open a view
+    await page.keyboard.type('scroll-repo-27')
+    await expect(homeHeading()).toBeVisible()
+    await expect(repoRows()).toHaveCount(1)
+    await expect(repoRows().first()).toHaveAttribute('aria-label', 'scroll-repo-27')
+    await expect(repoRows().first()).toHaveClass(/border-accent/)
+
+    // The clear button joins the Tab loop while there's a query
+    await page.keyboard.press('Tab')
+    await expect(dialog().getByRole('button', { name: 'Clear filter' })).toBeFocused()
+    await filterInput().focus()
+
+    await page.keyboard.press('Enter')
+    await expect(dialog()).toBeFocused()
+    await page.keyboard.press('n')
+    await expect(dialog().locator('h2:has-text("New Branch")')).toBeVisible()
+    await expect(dialog().getByText('scroll-repo-27', { exact: true })).toBeVisible()
+  })
+
+  test('the dialog keeps its size and place while filtering; Escape clears, then closes (#188)', async () => {
+    await injectRepos(30)
+    await openNewSessionDialog()
+    const before = (await dialog().boundingBox())!
+    const clone = dialog().getByRole('button', { name: 'Clone' })
+    const cloneBefore = (await clone.boundingBox())!
+    await filterInput().focus()
+
+    // One input event for the whole query, as a paste: the very first change already leaves a single row
+    await page.keyboard.insertText('scroll-repo-27')
+    await expect(repoRows()).toHaveCount(1)
+    await expectSameBox(before)
+    // The scrollbar's space is kept, so the content doesn't widen sideways either
+    const cloneAfter = (await clone.boundingBox())!
+    expect(Math.abs(cloneAfter.x - cloneBefore.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(cloneAfter.width - cloneBefore.width)).toBeLessThanOrEqual(1)
+
+    await page.keyboard.press('Escape')
+    await expect(filterInput()).toHaveValue('')
+    await expect(repoRows()).toHaveCount(31)
+
+    // The first key already matches nothing
+    await page.keyboard.type('zz')
+    await expect(dialog().getByText(/No repositories match “zz”/)).toBeVisible()
+    await expectSameBox(before)
+
+    await page.keyboard.press('Escape')
+    await expect(repoRows()).toHaveCount(31)
+    await expectSameBox(before)
+    await page.keyboard.press('Escape')
+    await expect(dialog()).toHaveCount(0)
+  })
+
+  test('a filtered dialog still fits when the window shrinks, header and Cancel in place (#188)', async () => {
+    await injectRepos(30, false)
+    await openNewSessionDialog()
+    await filterInput().focus()
+    await page.keyboard.type('scroll-repo-2') // scroll-repo-20 to 29
+    await expect(repoRows()).toHaveCount(10)
+
+    await setWindow(800, 600, 2)
+    await expectDialogInsideWindow()
+    await expect(filterInput()).toBeInViewport({ ratio: 1 })
+    await expect(homeCancel()).toBeInViewport({ ratio: 1 })
+    // The body shrank with the window and scrolls; the header doesn't scroll away
+    expect(await homeBody().evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    await expectReachable(repoRows().last())
+    await expectReachable(dialog().getByText(/GitHub CLI.*not found/))
+    await expect(filterInput()).toBeInViewport({ ratio: 1 })
+    await expect(homeCancel()).toBeInViewport({ ratio: 1 })
+    expect(await dialog().evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  })
+
+  test('at the smallest window the highlighted repo keeps its name visible; its buttons wrap (#188)', async () => {
+    // With gh available every row has six buttons: at 400px logical they used to squeeze the name to nothing
+    await injectRepos(30)
+    await setWindow(800, 600, 2)
+    await openNewSessionDialog()
+    await filterInput().focus()
+    await page.keyboard.type('scroll-repo-27')
+    await expect(repoRows()).toHaveCount(1)
+
+    const row = repoRows().first()
+    const name = row.getByText('scroll-repo-27', { exact: true })
+    await expectReachable(row)
+    const nameBox = (await name.boundingBox())!
+    expect(nameBox.width).toBeGreaterThanOrEqual(60)
+    // Every button stays inside the row
+    const rowBox = (await row.boundingBox())!
+    for (const button of await row.locator('button').all()) {
+      const box = (await button.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(rowBox.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1)
+    }
+  })
+
+  test('with only a few repos there is no filter and / does nothing (#188)', async () => {
+    await openNewSessionDialog()
+    await expect(repoRows()).not.toHaveCount(0)
+    await expect(filterInput()).toHaveCount(0)
+    await page.keyboard.press('/')
+    await expect(dialog()).toBeFocused()
+    await expect(homeHeading()).toBeVisible()
   })
 
   type SubView = {
